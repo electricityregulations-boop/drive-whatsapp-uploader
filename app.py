@@ -7,8 +7,8 @@ from typing import Optional
 
 # --- === PASTE YOUR SECRETS HERE (embedded for quick testing) === ---
 # Google Service Account JSON (full JSON string)
-GDRIVE_SA_JSON = """
-{
+# IMPORTANT: The private_key must have \\n (escaped) not actual newlines
+GDRIVE_SA_JSON = r"""{
   "type": "service_account",
   "project_id": "report-automation-480315",
   "private_key_id": "ad92dc11d3b17de5ffc7f84e025af66c2e39fab5",
@@ -20,8 +20,7 @@ GDRIVE_SA_JSON = """
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/streamlit-drive-sa%40report-automation-480315.iam.gserviceaccount.com",
   "universe_domain": "googleapis.com"
-}
-"""
+}"""
 
 GDRIVE_FOLDER_ID = "1wCrpAvGO2dShMWHqxmvTwsHRuvUwTIWy"
 
