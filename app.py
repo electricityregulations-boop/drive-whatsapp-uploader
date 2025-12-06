@@ -1,12 +1,8 @@
-# app.py
-"""
-Streamlit app: Upload -> Google Drive (optional) -> WhatsApp Cloud API
-This single-file version has keys embedded directly for quick testing.
-**Remove secrets from code and move to Streamlit Secrets for production.**
-"""
+# OPTIMIZED WHATSAPP CLOUD API CODE FOR PDF-ONLY UPLOADS
+# Simplified and hardened for production use with PDFs
 
 import streamlit as st
-import json, io, time, requests, traceback, mimetypes
+import json, io, time, requests, traceback
 from typing import Optional
 
 # --- === PASTE YOUR SECRETS HERE (embedded for quick testing) === ---
@@ -27,18 +23,17 @@ GDRIVE_SA_JSON = """
 }
 """
 
-# Drive folder ID
 GDRIVE_FOLDER_ID = "1wCrpAvGO2dShMWHqxmvTwsHRuvUwTIWy"
 
-# WhatsApp Cloud API credentials (temporary token provided earlier)
+# WhatsApp Cloud API credentials
 WHATSAPP_TOKEN = "EAAWyxnnXSA4BQKMBJeqw1GzCTcnUdhIJxqkAZBHcsFXnH5DEUKuraSCR9WvWZBSRlJ7PjMT8w9Sh7ZBoeBpKwECdLDI5MvnU4EZBy06TMOOH4OmKJsLTMvwQKQhMKRgukwUhZAxdkfXpuAC2wVWuiWfZBuyIXS3uZCDCbeETTXz6UWBJj6cp3MYKrLxZAsxeaeHum1ceakBSJlFgk9dESg9MkK8NDCXufyeXr5NytwIBOEIRVYZBlTmdWECWUil5THYkKwfeyBWh7fXUsbSwRER6dkzqMvZCKOzLY9Ub3xd7AZD"
 WHATSAPP_PHONE_ID = "859290280608485"
 WHATSAPP_TO = "+917752020462"
 
-# --- end of embedded secrets ---
-# Note: For production, move above values to Streamlit Secrets.
+# PDF-specific constants
+PDF_MIME_TYPE = "application/pdf"
+PDF_MAX_SIZE = 100 * 1024 * 1024  # 100MB (WhatsApp limit for documents)
 
-# Try to import Google libs (they must be listed in requirements.txt)
 try:
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
@@ -47,264 +42,517 @@ try:
 except Exception:
     GOOGLE_LIBS_AVAILABLE = False
 
-st.set_page_config(page_title="Uploader → Drive & WhatsApp", layout="centered")
-st.title("Upload → Google Drive (optional) → WhatsApp")
+st.set_page_config(page_title="PDF → Drive & WhatsApp", layout="centered")
+st.title("📄 PDF Upload → Google Drive & WhatsApp")
 
-st.markdown(
-    """
-Use this app to upload a file to Google Drive and/or send it via the WhatsApp Cloud API.
+st.markdown("""
+Upload PDF reports to Google Drive and/or send them via WhatsApp Cloud API.
 
-**Important**:
-- This test file embeds secrets for convenience. Move them to Streamlit Secrets for production.
-- Temporary WhatsApp tokens expire (~24 hrs). Replace with long-lived tokens for production.
-"""
-)
-
-# -------------------------
-# Basic UI & flags
-# -------------------------
-enable_drive = bool(GDRIVE_SA_JSON and GDRIVE_FOLDER_ID)
-enable_whatsapp = bool(WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO)
-
-if not GOOGLE_LIBS_AVAILABLE and enable_drive:
-    st.warning("Google client libraries are not available. Add them to requirements.txt.")
-
-st.subheader("Choose upload options")
-col1, col2 = st.columns(2)
-with col1:
-    do_drive = st.checkbox("Upload to Google Drive (create share link)", value=enable_drive)
-with col2:
-    do_whatsapp_media = st.checkbox("Upload & send file to WhatsApp as media", value=enable_whatsapp)
-
-if do_drive and not enable_drive:
-    st.error("Drive not fully configured. Check embedded service account JSON and installed packages.")
-if do_whatsapp_media and not enable_whatsapp:
-    st.error("WhatsApp not fully configured. Check embedded WhatsApp credentials.")
-
-st.write("---")
-
-uploaded = st.file_uploader("Choose file to upload (PDF, image, etc.)", type=None)
-note = st.text_input("Optional message / caption to include with WhatsApp message", "")
+**Features:**
+- ✅ Optimized for PDF files only
+- ✅ Automatic file validation
+- ✅ Enhanced error handling
+- ✅ Drive shareable links
+- ✅ WhatsApp document messaging
+""")
 
 # -------------------------
-# Helper functions
+# OPTIMIZED HELPER FUNCTIONS FOR PDF
 # -------------------------
+
 def get_drive_service():
+    """Initialize Google Drive service."""
     sa_info = json.loads(GDRIVE_SA_JSON)
-    creds = service_account.Credentials.from_service_account_info(sa_info, scopes=["https://www.googleapis.com/auth/drive"])
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info, 
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
     service = build("drive", "v3", credentials=creds, cache_discovery=False)
     return service
 
-def upload_to_drive_bytes(filename: str, file_bytes: bytes, mimetype: Optional[str]) -> str:
+
+def upload_pdf_to_drive(filename: str, file_bytes: bytes) -> str:
+    """Upload PDF to Google Drive.
+    
+    Args:
+        filename: PDF filename
+        file_bytes: PDF content as bytes
+        
+    Returns:
+        file_id: Google Drive file ID
+        
+    Raises:
+        RuntimeError: If upload fails
+    """
     if not GOOGLE_LIBS_AVAILABLE:
-        raise RuntimeError("google-api libs not installed.")
-    service = get_drive_service()
-    fh = io.BytesIO(file_bytes)
-    media = MediaIoBaseUpload(fh, mimetype=mimetype or "application/octet-stream", resumable=True)
-    metadata = {"name": filename}
-    if GDRIVE_FOLDER_ID:
-        metadata["parents"] = [GDRIVE_FOLDER_ID]
-    request = service.files().create(body=metadata, media_body=media, fields="id")
-    response = None
-    while True:
-        status, response = request.next_chunk()
-        if status:
-            st.info(f"Drive upload progress: {int(status.progress() * 100)}%")
-        if response:
-            break
-    return response["id"]
+        raise RuntimeError("Google API libraries not installed.")
+    
+    try:
+        service = get_drive_service()
+        fh = io.BytesIO(file_bytes)
+        media = MediaIoBaseUpload(
+            fh, 
+            mimetype=PDF_MIME_TYPE,
+            resumable=True
+        )
+        
+        metadata = {
+            "name": filename,
+            "mimeType": PDF_MIME_TYPE
+        }
+        
+        if GDRIVE_FOLDER_ID:
+            metadata["parents"] = [GDRIVE_FOLDER_ID]
+        
+        request = service.files().create(
+            body=metadata, 
+            media_body=media, 
+            fields="id,name,mimeType"
+        )
+        
+        response = None
+        while response is None:
+            status, response = request.next_chunk()
+            if status:
+                progress = int(status.progress() * 100)
+                st.info(f"📤 Drive upload progress: {progress}%")
+        
+        return response["id"]
+        
+    except Exception as e:
+        raise RuntimeError(f"Drive upload failed: {str(e)}")
+
 
 def make_drive_file_public(file_id: str) -> str:
-    service = get_drive_service()
+    """Make Drive file publicly accessible and return link.
+    
+    Args:
+        file_id: Google Drive file ID
+        
+    Returns:
+        share_link: Public viewing URL
+    """
     try:
-        service.permissions().create(fileId=file_id, body={"role":"reader","type":"anyone"}).execute()
+        service = get_drive_service()
+        
+        # Create public permission
+        service.permissions().create(
+            fileId=file_id,
+            body={"role": "reader", "type": "anyone"}
+        ).execute()
+        
+        # Get file metadata with links
+        meta = service.files().get(
+            fileId=file_id, 
+            fields="id,webViewLink,webContentLink,name"
+        ).execute()
+        
+        return meta.get("webViewLink") or f"https://drive.google.com/file/d/{file_id}/view"
+        
     except Exception as e:
-        st.warning("Drive permission creation returned: " + str(e))
-    meta = service.files().get(fileId=file_id, fields="id, webViewLink, webContentLink").execute()
-    return meta.get("webViewLink") or meta.get("webContentLink") or f"https://drive.google.com/file/d/{file_id}/view"
+        st.warning(f"Drive permission setup warning: {str(e)}")
+        return f"https://drive.google.com/file/d/{file_id}/view"
 
-def upload_media_to_whatsapp(file_bytes: bytes, filename: str, mimetype: Optional[str]) -> str:
-    """Upload file to WhatsApp media endpoint. Returns media_id.
-       Ensures a valid MIME type is sent."""
+
+def upload_pdf_to_whatsapp(file_bytes: bytes, filename: str) -> str:
+    """Upload PDF to WhatsApp media endpoint.
+    
+    Args:
+        file_bytes: PDF content as bytes
+        filename: Original filename
+        
+    Returns:
+        media_id: WhatsApp media ID
+        
+    Raises:
+        RuntimeError: If upload fails
+    """
     if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID):
         raise RuntimeError("WhatsApp credentials missing.")
-    # Guess mimetype if empty
-    if not mimetype:
-        guessed, _ = mimetypes.guess_type(filename)
-        mimetype = guessed or "application/octet-stream"
-
-    upload_url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_ID}/media"
+    
+    # Validate file size
+    if len(file_bytes) > PDF_MAX_SIZE:
+        raise RuntimeError(
+            f"PDF too large: {len(file_bytes) / (1024*1024):.1f}MB "
+            f"(max 100MB for WhatsApp documents)"
+        )
+    
+    # Use latest stable API version
+    upload_url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_ID}/media"
+    
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
-
-    # requests wants (filename, fileobj_or_bytes, content-type)
+    
     files = {
-        "file": (filename, file_bytes, mimetype)
+        "file": (filename, file_bytes, PDF_MIME_TYPE)
     }
-    data = {"messaging_product": "whatsapp"}
-    resp = requests.post(upload_url, headers=headers, files=files, data=data, timeout=120)
-    if resp.status_code not in (200,201):
-        raise RuntimeError(f"WhatsApp media upload failed {resp.status_code}: {resp.text}")
-    j = resp.json()
-    media_id = j.get("id")
-    if not media_id:
-        raise RuntimeError("WhatsApp upload returned no media id: " + resp.text)
-    return media_id
+    
+    data = {
+        "messaging_product": "whatsapp",
+        "type": PDF_MIME_TYPE
+    }
+    
+    try:
+        resp = requests.post(
+            upload_url, 
+            headers=headers, 
+            files=files, 
+            data=data, 
+            timeout=180  # 3 minutes for large PDFs
+        )
+        
+        if resp.status_code == 401:
+            raise RuntimeError(
+                "WhatsApp token invalid or expired. Generate a new token."
+            )
+        elif resp.status_code == 413:
+            raise RuntimeError("PDF file too large for WhatsApp.")
+        elif resp.status_code == 429:
+            raise RuntimeError("Rate limit exceeded. Wait before retrying.")
+        elif resp.status_code not in (200, 201):
+            error_detail = resp.json() if resp.text else resp.text
+            raise RuntimeError(
+                f"WhatsApp media upload failed ({resp.status_code}): {error_detail}"
+            )
+        
+        response_data = resp.json()
+        media_id = response_data.get("id")
+        
+        if not media_id:
+            raise RuntimeError(
+                f"No media ID returned from WhatsApp: {response_data}"
+            )
+        
+        return media_id
+        
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Upload timed out. Check network connection or try smaller PDF.")
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e)}")
 
-def send_whatsapp_media(media_id: str, filename: str, mimetype: Optional[str], caption: str = ""):
-    url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    if mimetype and mimetype.startswith("image/"):
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": WHATSAPP_TO,
-            "type": "image",
-            "image": {"id": media_id, "caption": caption}
+
+def send_pdf_via_whatsapp(media_id: str, filename: str, caption: str = ""):
+    """Send PDF document via WhatsApp.
+    
+    Args:
+        media_id: WhatsApp media ID
+        filename: Original filename
+        caption: Optional message caption
+        
+    Returns:
+        dict: API response with message ID
+        
+    Raises:
+        RuntimeError: If send fails
+    """
+    if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO):
+        raise RuntimeError("WhatsApp credentials incomplete.")
+    
+    # CRITICAL: Remove '+' from phone number for API
+    to_number = WHATSAPP_TO.replace("+", "").strip()
+    
+    url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_ID}/messages"
+    
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "document",
+        "document": {
+            "id": media_id,
+            "filename": filename,
+            "caption": caption[:1024] if caption else None  # WhatsApp 1KB limit
         }
-    else:
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": WHATSAPP_TO,
-            "type": "document",
-            "document": {"id": media_id, "filename": filename}
-        }
-    resp = requests.post(url, json=payload, headers=headers, timeout=30)
-    if resp.status_code not in (200,201):
-        raise RuntimeError(f"WhatsApp send failed {resp.status_code}: {resp.text}")
-    return resp  # return requests.Response for consistency
+    }
+    
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=30)
+        
+        if resp.status_code == 401:
+            raise RuntimeError("Invalid WhatsApp token.")
+        elif resp.status_code == 403:
+            raise RuntimeError(
+                "Permission denied. Check:\n"
+                "- Phone number quality rating\n"
+                "- Account not restricted\n"
+                "- Recipient added to test numbers list"
+            )
+        elif resp.status_code == 429:
+            raise RuntimeError("Rate limit exceeded.")
+        elif resp.status_code not in (200, 201):
+            error_detail = resp.json() if resp.text else resp.text
+            raise RuntimeError(
+                f"WhatsApp send failed ({resp.status_code}): {error_detail}"
+            )
+        
+        return resp.json()
+        
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Network error: {str(e)}")
+
 
 def send_whatsapp_text(body: str):
-    url = f"https://graph.facebook.com/v17.0/{WHATSAPP_PHONE_ID}/messages"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product":"whatsapp","to":WHATSAPP_TO,"type":"text","text":{"body":body}}
+    """Send plain text message via WhatsApp.
+    
+    Args:
+        body: Message text
+        
+    Returns:
+        dict: API response
+    """
+    if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO):
+        raise RuntimeError("WhatsApp credentials incomplete.")
+    
+    to_number = WHATSAPP_TO.replace("+", "").strip()
+    
+    url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_ID}/messages"
+    
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to_number,
+        "type": "text",
+        "text": {"body": body}
+    }
+    
     resp = requests.post(url, json=payload, headers=headers, timeout=30)
-    if resp.status_code not in (200,201):
-        raise RuntimeError(f"WhatsApp text send failed {resp.status_code}: {resp.text}")
-    return resp  # return Response object
+    
+    if resp.status_code not in (200, 201):
+        error_detail = resp.json() if resp.text else resp.text
+        raise RuntimeError(f"Text send failed ({resp.status_code}): {error_detail}")
+    
+    return resp.json()
 
-# -------------------------
-# Main action
-# -------------------------
-if uploaded:
-    st.write(f"File: **{uploaded.name}** — {uploaded.size} bytes — MIME: {uploaded.type}")
-    if st.button("Start upload & send"):
+
+def validate_pdf(file_bytes: bytes, filename: str) -> tuple[bool, str]:
+    """Validate that uploaded file is a proper PDF.
+    
+    Args:
+        file_bytes: File content
+        filename: Original filename
+        
+    Returns:
+        (is_valid, error_message)
+    """
+    # Check extension
+    if not filename.lower().endswith('.pdf'):
+        return False, "File must have .pdf extension"
+    
+    # Check PDF magic bytes
+    if not file_bytes.startswith(b'%PDF-'):
+        return False, "File is not a valid PDF (invalid header)"
+    
+    # Check size
+    size_mb = len(file_bytes) / (1024 * 1024)
+    if len(file_bytes) > PDF_MAX_SIZE:
+        return False, f"PDF too large ({size_mb:.1f}MB, max 100MB)"
+    
+    if len(file_bytes) < 100:
+        return False, "PDF file appears corrupted (too small)"
+    
+    return True, ""
+
+
+def diagnose_whatsapp():
+    """Run diagnostics on WhatsApp configuration."""
+    st.subheader("🔍 WhatsApp Configuration Diagnostics")
+    
+    with st.spinner("Running diagnostics..."):
+        results = []
+        
+        # Check 1: Credentials
+        if WHATSAPP_TOKEN and len(WHATSAPP_TOKEN) > 50:
+            results.append(("✅", "Token", f"Present ({len(WHATSAPP_TOKEN)} chars)"))
+        else:
+            results.append(("❌", "Token", "Missing or invalid"))
+        
+        if WHATSAPP_PHONE_ID:
+            results.append(("✅", "Phone ID", WHATSAPP_PHONE_ID))
+        else:
+            results.append(("❌", "Phone ID", "Missing"))
+        
+        if WHATSAPP_TO:
+            to_clean = WHATSAPP_TO.replace("+", "").strip()
+            results.append(("✅", "Recipient", f"{WHATSAPP_TO} → API: {to_clean}"))
+        else:
+            results.append(("❌", "Recipient", "Missing"))
+        
+        # Check 2: API connectivity
         try:
-            uploaded.seek(0)
-            file_bytes = uploaded.getvalue()
-            filename = uploaded.name
-            mimetype = uploaded.type or None
-
-            drive_link = None
-            whatsapp_media_resp = None
-
-            # 1) upload to Drive if selected
-            if do_drive:
-                if not (GDRIVE_SA_JSON and GDRIVE_FOLDER_ID):
-                    st.error("Drive not configured.")
-                else:
-                    st.info("Uploading to Google Drive...")
-                    file_id = upload_to_drive_bytes(filename, file_bytes, mimetype)
-                    st.success("Uploaded to Drive. File ID: " + file_id)
-                    st.info("Creating shareable link...")
-                    drive_link = make_drive_file_public(file_id)
-                    st.success("Drive link: " + drive_link)
-
-            # 2) upload to WhatsApp media endpoint if selected
-            if do_whatsapp_media:
-                if not (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO):
-                    st.error("WhatsApp not configured.")
-                else:
-                    st.info("Uploading media to WhatsApp...")
-                    media_id = upload_media_to_whatsapp(file_bytes, filename, mimetype)
-                    st.success("Media uploaded to WhatsApp (media_id=" + str(media_id) + ")")
-                    st.info("Sending media message...")
-                    resp = send_whatsapp_media(media_id, filename, mimetype, caption=note or "")
-                    st.success("WhatsApp media message sent.")
-                    try:
-                        st.json(resp.json())
-                    except Exception:
-                        st.write(resp.text)
-                    whatsapp_media_resp = resp
-
-            # 3) if Drive link exists and user did not send media, send link via WhatsApp text
-            if drive_link and not do_whatsapp_media and (WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO):
-                st.info("Sending drive link to WhatsApp as text message...")
-                body = (note + "\n\n" if note else "") + f"New report: {drive_link}"
-                rsp = send_whatsapp_text(body)
-                st.success("WhatsApp text sent.")
-                try:
-                    st.json(rsp.json())
-                except Exception:
-                    st.write(rsp.text)
-
-            st.balloons()
-
+            url = f"https://graph.facebook.com/v21.0/{WHATSAPP_PHONE_ID}"
+            headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+            resp = requests.get(url, headers=headers, timeout=10)
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                results.append(("✅", "API Connection", "Connected"))
+                results.append(("ℹ️", "Display Number", data.get("display_phone_number", "N/A")))
+                results.append(("ℹ️", "Verified Name", data.get("verified_name", "N/A")))
+                results.append(("ℹ️", "Quality Rating", data.get("quality_rating", "N/A")))
+            elif resp.status_code == 401:
+                results.append(("❌", "API Connection", "Token expired/invalid"))
+            else:
+                results.append(("⚠️", "API Connection", f"Error {resp.status_code}"))
         except Exception as e:
-            st.error("Operation failed: " + str(e))
-            st.write(traceback.format_exc())
+            results.append(("❌", "API Connection", str(e)))
+        
+        # Display results
+        for icon, key, value in results:
+            st.text(f"{icon} {key}: {value}")
+        
+        st.info(
+            "**Next Steps:**\n"
+            "1. Add recipient to test numbers in Meta Console (WITH '+')\n"
+            "2. Verify with 6-digit code\n"
+            "3. Use recipient WITHOUT '+' in API calls (handled automatically)\n"
+            "4. Check quality rating is not 'Low'\n"
+            "5. Ensure phone status is 'Connected'"
+        )
 
-else:
-    st.info("Choose a file to upload, pick options above, then click Start upload & send.")
+
+# -------------------------
+# MAIN UI
+# -------------------------
+
+enable_drive = bool(GDRIVE_SA_JSON and GDRIVE_FOLDER_ID and GOOGLE_LIBS_AVAILABLE)
+enable_whatsapp = bool(WHATSAPP_TOKEN and WHATSAPP_PHONE_ID and WHATSAPP_TO)
+
+st.subheader("Upload Options")
+col1, col2 = st.columns(2)
+with col1:
+    do_drive = st.checkbox(
+        "📁 Upload to Google Drive", 
+        value=enable_drive,
+        help="Creates a shareable public link"
+    )
+with col2:
+    do_whatsapp = st.checkbox(
+        "💬 Send via WhatsApp", 
+        value=enable_whatsapp,
+        help="Sends PDF as document attachment"
+    )
+
+if do_drive and not enable_drive:
+    st.error("❌ Drive not configured. Check service account JSON and libraries.")
+
+if do_whatsapp and not enable_whatsapp:
+    st.error("❌ WhatsApp not configured. Check credentials.")
 
 st.write("---")
-st.markdown("**Embedded credentials (for quick testing only)** — remove after testing.")
-st.code(
-"""
-GDRIVE_SA_JSON = \"\"\"{ ... entire service account JSON ... }\"\"\"
-GDRIVE_FOLDER_ID = "1wCrpAvGO2dShMWHqxmvTwsHRuvUwTIWy"
-WHATSAPP_TOKEN = "EAAWyxnnXSA4B..."
-WHATSAPP_PHONE_ID = "859290280608485"
-WHATSAPP_TO = "+917752020462"
-""", language="text")
 
-# -------------------------
-# WhatsApp quick tests (UI helpers)
-# -------------------------
-st.markdown("---")
-st.header("Quick WhatsApp tests (dev only)")
+# File uploader - PDF only
+uploaded = st.file_uploader(
+    "📄 Choose PDF file to upload",
+    type=['pdf'],
+    help="Maximum size: 100MB"
+)
 
-# 1) Test sending a plain text message via WhatsApp
-st.subheader("1) Send a test text message")
-test_text = st.text_input("Message to send (text)", value="Hello from Streamlit test!")
-if st.button("Send test text message"):
-    try:
-        resp = send_whatsapp_text(test_text)
-        # resp is a requests.Response
-        st.success("Text sent — response:")
-        try:
-            st.json(resp.json())
-        except Exception:
-            st.write(resp.text)
-    except Exception as e:
-        st.error("Failed to send test text: " + str(e))
+caption = st.text_area(
+    "Optional message/caption",
+    placeholder="Enter a message to include with the PDF...",
+    max_chars=1024,
+    help="WhatsApp caption limit: 1024 characters"
+)
 
-st.write("")  # spacer
-
-# 2) Test uploading a small file to WhatsApp and sending it as media
-st.subheader("2) Upload & send a file to WhatsApp (media)")
-test_file = st.file_uploader("Choose a small file (image/pdf) to test media send", type=None, key="wa_media_test")
-if test_file is not None:
-    st.write("Selected:", test_file.name, f"({test_file.size} bytes)")
-    if st.button("Upload & send media"):
-        try:
-            test_file.seek(0)
-            file_bytes = test_file.getvalue()
-            filename = test_file.name
-            mimetype = test_file.type or None
-
-            st.info("Uploading media to WhatsApp...")
-            media_id = upload_media_to_whatsapp(file_bytes, filename, mimetype)
-            st.success("Uploaded to WhatsApp media (media_id=" + str(media_id) + ")")
-
-            st.info("Sending media message...")
-            resp = send_whatsapp_media(media_id, filename, mimetype, caption="Test file from Streamlit")
-            st.success("Media message sent — response:")
+if uploaded:
+    file_bytes = uploaded.getvalue()
+    file_size_mb = len(file_bytes) / (1024 * 1024)
+    
+    st.info(f"**File:** {uploaded.name} | **Size:** {file_size_mb:.2f} MB")
+    
+    # Validate PDF
+    is_valid, error_msg = validate_pdf(file_bytes, uploaded.name)
+    
+    if not is_valid:
+        st.error(f"❌ Validation failed: {error_msg}")
+    else:
+        st.success("✅ Valid PDF file")
+        
+        if st.button("🚀 Start Upload & Send", type="primary"):
             try:
-                st.json(resp.json())
-            except Exception:
-                st.write(resp.text)
+                drive_link = None
+                whatsapp_response = None
+                
+                # Upload to Drive
+                if do_drive:
+                    with st.spinner("📤 Uploading to Google Drive..."):
+                        file_id = upload_pdf_to_drive(uploaded.name, file_bytes)
+                        st.success(f"✅ Uploaded to Drive (ID: {file_id})")
+                    
+                    with st.spinner("🔗 Creating shareable link..."):
+                        drive_link = make_drive_file_public(file_id)
+                        st.success(f"✅ Drive link: {drive_link}")
+                
+                # Send via WhatsApp
+                if do_whatsapp:
+                    with st.spinner("📤 Uploading PDF to WhatsApp..."):
+                        media_id = upload_pdf_to_whatsapp(file_bytes, uploaded.name)
+                        st.success(f"✅ Uploaded to WhatsApp (media_id: {media_id})")
+                    
+                    with st.spinner("💬 Sending WhatsApp message..."):
+                        whatsapp_response = send_pdf_via_whatsapp(
+                            media_id, 
+                            uploaded.name, 
+                            caption
+                        )
+                        st.success("✅ WhatsApp message sent!")
+                        
+                        # Show message ID
+                        if "messages" in whatsapp_response:
+                            msg_id = whatsapp_response["messages"][0]["id"]
+                            st.code(f"Message ID: {msg_id}", language="text")
+                
+                # If only Drive (no WhatsApp direct), optionally send link
+                if drive_link and not do_whatsapp and enable_whatsapp:
+                    send_link = st.checkbox("Send Drive link via WhatsApp text?")
+                    if send_link:
+                        with st.spinner("💬 Sending Drive link..."):
+                            body = (caption + "\n\n" if caption else "") + f"📄 PDF Report: {drive_link}"
+                            resp = send_whatsapp_text(body)
+                            st.success("✅ Link sent via WhatsApp!")
+                
+                st.balloons()
+                
+            except Exception as e:
+                st.error(f"❌ Operation failed: {str(e)}")
+                with st.expander("🐛 Debug Info"):
+                    st.code(traceback.format_exc())
 
+else:
+    st.info("👆 Upload a PDF file to begin")
+
+# -------------------------
+# DIAGNOSTICS & TESTING
+# -------------------------
+
+st.write("---")
+st.header("🔧 Developer Tools")
+
+with st.expander("🔍 Run WhatsApp Diagnostics"):
+    if st.button("Check Configuration"):
+        diagnose_whatsapp()
+
+with st.expander("✉️ Send Test Text Message"):
+    test_msg = st.text_input("Test message", value="Hello from PDF uploader!")
+    if st.button("Send Test"):
+        try:
+            resp = send_whatsapp_text(test_msg)
+            st.success("✅ Test message sent!")
+            st.json(resp)
         except Exception as e:
-            st.error("Media test failed: " + str(e))
-            st.text(traceback.format_exc())
+            st.error(f"❌ Failed: {str(e)}")
 
-st.markdown("**Note:** Temporary tokens expire in 24 hrs. Use long-lived tokens when you move to production.")
+st.write("---")
+st.caption(
+    "⚠️ **Security Note:** This app has embedded credentials for testing. "
+    "Move to Streamlit Secrets for production use."
+)
