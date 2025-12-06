@@ -228,8 +228,63 @@ st.markdown("**Secrets required** (set in Streamlit Cloud → Settings → Secre
 st.code(
 """
 GDRIVE_SA_JSON = \"\"\"{ ... entire service account JSON ... }\"\"\"
-GDRIVE_FOLDER_ID = "your-folder-id"
-WHATSAPP_TOKEN = "EAA...."
-WHATSAPP_PHONE_ID = "1234567890"
-WHATSAPP_TO = "+91XXXXXXXXXX"
+GDRIVE_FOLDER_ID = "1wCrpAvGO2dShMWHqxmvTwsHRuvUwTIWy"
+WHATSAPP_TOKEN = "EAAWyxnnXSA4BQKMBJeqw1GzCTcnUdhIJxqkAZBHcsFXnH5DEUKuraSCR9WvWZBSRlJ7PjMT8w9Sh7ZBoeBpKwECdLDI5MvnU4EZBy06TMOOH4OmKJsLTMvwQKQhMKRgukwUhZAxdkfXpuAC2wVWuiWfZBuyIXS3uZCDCbeETTXz6UWBJj6cp3MYKrLxZAsxeaeHum1ceakBSJlFgk9dESg9MkK8NDCXufyeXr5NytwIBOEIRVYZBlTmdWECWUil5THYkKwfeyBWh7fXUsbSwRER6dkzqMvZCKOzLY9Ub3xd7AZD"
+WHATSAPP_PHONE_ID = "859290280608485"
+WHATSAPP_TO = "+917752020462"
 """, language="text")
+
+# -------------------------
+# WhatsApp quick tests (UI helpers)
+# Add this block at the end of your existing app.py
+# -------------------------
+st.markdown("---")
+st.header("Quick WhatsApp tests (dev only)")
+
+# 1) Test sending a plain text message via WhatsApp
+st.subheader("1) Send a test text message")
+test_text = st.text_input("Message to send (text)", value="Hello from Streamlit test!")
+if st.button("Send test text message"):
+    try:
+        # reuse your send_whatsapp_text function if present
+        resp = send_whatsapp_text(test_text)
+        st.success("Text sent — response:")
+        try:
+            st.json(resp.json())
+        except Exception:
+            st.write(resp.text)
+    except Exception as e:
+        st.error("Failed to send test text: " + str(e))
+
+st.write("")  # spacer
+
+# 2) Test uploading a small file to WhatsApp and sending it as media
+st.subheader("2) Upload & send a file to WhatsApp (media)")
+test_file = st.file_uploader("Choose a small file (image/pdf) to test media send", type=None, key="wa_media_test")
+if test_file is not None:
+    st.write("Selected:", test_file.name, f"({test_file.size} bytes)")
+    if st.button("Upload & send media"):
+        try:
+            test_file.seek(0)
+            file_bytes = test_file.getvalue()
+            filename = test_file.name
+            mimetype = test_file.type or ""
+
+            # 2a) Upload to WhatsApp media endpoint
+            st.info("Uploading media to WhatsApp...")
+            media_id = upload_media_to_whatsapp(file_bytes, filename, mimetype)
+            st.success("Uploaded to WhatsApp media (media_id=" + str(media_id) + ")")
+
+            # 2b) Send the media message
+            st.info("Sending media message...")
+            resp = send_whatsapp_media(media_id, filename, mimetype, caption="Test file from Streamlit")
+            st.success("Media message sent — response:")
+            st.json(resp)
+        except Exception as e:
+            st.error("Media test failed: " + str(e))
+            st.write("") 
+            st.write("Traceback:")
+            import traceback
+            st.text(traceback.format_exc())
+
+st.markdown("**Note:** Temporary tokens expire in 24 hrs. Use long-lived tokens when you move to production.")
